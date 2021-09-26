@@ -3,8 +3,11 @@
 #include <WebServer.h>
 #include <WiFi.h>
 
-const char* WIFI_SSID = "UC2-FA8Team";
-const char* WIFI_PASS = "_LachmannUC2";
+const char *SSID = "BenMur";
+const char *PWD = "MurBen3128";
+String hostname = "ESPLENS2";
+
+#define LED_PIN 33
 
 WebServer server(80);
 
@@ -99,6 +102,10 @@ void handleMjpeg()
 
 void setup()
 {
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH);   // turn the LED on (HIGH is the voltage level)
+  
+  
   Serial.begin(115200);
   Serial.println();
 
@@ -114,12 +121,7 @@ void setup()
     Serial.println(ok ? "CAMERA OK" : "CAMERA FAIL");
   }
 
-  WiFi.persistent(false);
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-  }
+  connectToWiFi(); 
 
   Serial.print("http://");
   Serial.println(WiFi.localIP());
@@ -140,4 +142,29 @@ void setup()
 void loop()
 {
   server.handleClient();
+}
+
+
+void connectToWiFi() {
+  Serial.print("Connecting to ");
+  Serial.println(SSID);
+  WiFi.mode(WIFI_STA);
+  WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
+  WiFi.setHostname(hostname.c_str()); //define hostname
+  WiFi.begin(SSID, PWD);
+
+  int notConnectedCounter = 0;
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(100);
+    Serial.println("Wifi connecting...");
+    notConnectedCounter++;
+    if (notConnectedCounter > 50) { // Reset board if not connected after 5s
+      Serial.println("Resetting due to Wifi not connecting...");
+      ESP.restart();
+    }
+  }
+
+  Serial.print("Connected. IP: ");
+  Serial.println(WiFi.localIP());
 }
