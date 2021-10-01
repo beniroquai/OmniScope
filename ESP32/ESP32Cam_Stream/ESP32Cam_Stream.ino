@@ -5,7 +5,7 @@
 
 const char *SSID = "BenMur";
 const char *PWD = "MurBen3128";
-String hostname = "ESPLENS2";
+String hostname = "ESPLENS3";
 
 #define LED_PIN 33
 
@@ -102,9 +102,12 @@ void handleMjpeg()
 
 void setup()
 {
+  
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);   // turn the LED on (HIGH is the voltage level)
-  
+  //delay(1000);
+  //digitalWrite(LED_PIN, LOW);   // turn the LED on (HIGH is the voltage level)
+
   
   Serial.begin(115200);
   Serial.println();
