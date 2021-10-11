@@ -85,6 +85,8 @@ void setup()
   server.on("/cam-hi.jpg", handleJpgHi);
   server.on("/cam-raw.jpg", handleJpgRaw);
   server.on("/cam.jpg", handleJpg);
+  server.on("/cam-stream", serve_jpg_stream);
+  server.on("/cam-triggered", serve_triggered);
   server.on("/restart", handleRestart);
   server.on("/led", HTTP_POST, set_led);
   server.on("/getID", HTTP_GET, get_ID);
@@ -151,6 +153,43 @@ void connectToWiFi() {
 
 
 
+void serve_jpg_stream(void)
+{
+  
+  camera_fb_t * fb = NULL; // pointer
+  
+  WiFiClient client = server.client();
+  String response = "HTTP/1.1 200 OK\r\n";
+  response += "Content-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n";
+  server.sendContent(response);
+
+  
+  while (1)
+  {
+    fb = esp_camera_fb_get();
+    if (!client.connected()){
+      esp_camera_fb_return(fb);
+      break;
+    }
+    response = "--frame\r\n";
+    response += "Content-Type: image/jpeg\r\n\r\n";
+    server.sendContent(response);
+
+    client.write((char *)fb->buf, fb->len);
+  
+    server.sendContent("\r\n");
+    if (!client.connected()){
+      esp_camera_fb_return(fb);
+      break;
+    }
+      
+  }
+    
+
+}
+
+
+
 void serveJpg()
 {
 
@@ -184,14 +223,6 @@ void serveJpg()
   server.sendContent(response);
   client.write((char *)fb->buf, fb->len);
   esp_camera_fb_return(fb);
-
-
-  /*
-    server.setContentLength(frame->size());
-    server.send(200, "image/jpeg");
-    WiFiClient client = server.client();
-    frame->writeTo(client);
-  */
 }
 
 
@@ -369,4 +400,37 @@ void setupCam() {
 
   Serial.printf("Camera initialized");
     
+}
+
+
+void serve_triggered(){
+  handleFileRead(TRIGGER_PHOTO_NAME); 
+}
+
+String getContentType(String filename){
+  if(server.hasArg("download")) return "application/octet-stream";
+  else if(filename.endsWith(".htm")) return "text/html";
+  else if(filename.endsWith(".html")) return "text/html";
+  else if(filename.endsWith(".css")) return "text/css";
+  else if(filename.endsWith(".js")) return "application/javascript";
+  else if(filename.endsWith(".png")) return "image/png";
+  else if(filename.endsWith(".gif")) return "image/gif";
+  else if(filename.endsWith(".jpg")) return "image/jpeg";
+  else if(filename.endsWith(".ico")) return "image/x-icon";
+  else if(filename.endsWith(".xml")) return "text/xml";
+  else if(filename.endsWith(".pdf")) return "application/x-pdf";
+  else if(filename.endsWith(".zip")) return "application/x-zip";
+  else if(filename.endsWith(".gz")) return "application/x-gzip";
+  return "text/plain";
+}
+
+bool handleFileRead(String path){
+  String contentType = getContentType(path);
+  if(SPIFFS.exists(path)){
+    File file = SPIFFS.open(path, "r");
+    size_t sent = server.streamFile(file, contentType);
+    file.close();
+    return true;
+  }
+  return false;
 }
