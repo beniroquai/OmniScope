@@ -1,5 +1,4 @@
 //https://stackoverflow.com/questions/60029614/esp32-cam-stream-in-opencv-python
-#include <esp32cam.h>
 #include "esp_camera.h"
 #include <WebServer.h>
 #include <WiFi.h>
@@ -9,6 +8,7 @@
 #include "soc/rtc_cntl_reg.h"  // Disable brownour problems
 #include "driver/rtc_io.h"
 #include <SPIFFS.h>
+#include "camera_pin.h"
 
 // DEFINE WIFI
 const char *SSID = "Blynk"; // "BenMur";
@@ -16,7 +16,7 @@ const char *PWD =  "12345678"; //"MurBen3128";
 String hostname = "ESPLENS0";
 
 // TRIGGER
-#define LED_PIN 33 
+#define LED_PIN 33
 #define FLASH_PIN 4
 #define TRIGGER_PIN 4
 #define TRIGGER_PHOTO_NAME "/photo.jpg"
@@ -26,9 +26,15 @@ WebServer server(80);
 char buffer[2500];
 DynamicJsonDocument jsonDocument(2048);
 
-static auto loRes = esp32cam::Resolution::find(320, 240);
-static auto hiRes = esp32cam::Resolution::find(800, 600);
-static auto rawRes = esp32cam::Resolution::find(1600, 1200);
+
+// camera settings
+  // OV2640 camera module
+  camera_config_t config;
+
+  
+// loRes => FRAMESIZE_QVGA
+// hiRes => FRAMESIZE_SVGA
+// rawRes => FRAMESIZE_UXGA
 
 // EEPROM
 int addr_id = 0;
@@ -36,17 +42,23 @@ int setup_id = 0;
 
 String identifier = "OMNISCOPE_1";
 
+
+// Triggered image to SPIFFS
+void IRAM_ATTR trigger_image() {
+  capturePhotoSaveSpiffs();
+}
+
 void setup()
 {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //disable brownout detector
-  
+
   Serial.begin(115200);
   Serial.println("Spinning Up Microscope");
 
   // EEPROM
   EEPROM.begin(512);
-  EEPROM.get(addr_id,setup_id);
-  Serial.println("SETUP ID is: "+String(setup_id));
+  EEPROM.get(addr_id, setup_id);
+  Serial.println("SETUP ID is: " + String(setup_id));
 
   // visualize Power available
   pinMode(FLASH_PIN, OUTPUT);
@@ -55,37 +67,23 @@ void setup()
   digitalWrite(FLASH_PIN, LOW);   // turn the LED on (HIGH is the voltage level)
 
 
-  
+
   // Initiliaze Camera
   setupCam();
-  {
-    using namespace esp32cam;
-    Config cfg;
-    cfg.setPins(pins::AiThinker);
-    cfg.setResolution(hiRes);
-    cfg.setBufferCount(2);
-    cfg.setJpeg(100);
 
-    bool ok = Camera.begin(cfg);
-    Serial.println(ok ? "CAMERA OK" : "CAMERA FAIL");
-  }
-
-  connectToWiFi(); 
-
+  // Initialize Wifi
+  connectToWiFi();
 
   Serial.print("http://");
   Serial.println(WiFi.localIP());
-  Serial.println("  /cam.bmp");
   Serial.println("  /cam-lo.jpg");
   Serial.println("  /cam-hi.jpg");
-  Serial.println("  /cam.mjpeg");
+  Serial.println("  /cam-raw.jpg");
 
-  server.on("/cam.bmp", handleBmp);
   server.on("/cam-lo.jpg", handleJpgLo);
   server.on("/cam-hi.jpg", handleJpgHi);
   server.on("/cam-raw.jpg", handleJpgRaw);
   server.on("/cam.jpg", handleJpg);
-  server.on("/cam.mjpeg", handleMjpeg);
   server.on("/restart", handleRestart);
   server.on("/led", HTTP_POST, set_led);
   server.on("/getID", HTTP_GET, get_ID);
@@ -109,7 +107,7 @@ void setup()
     delay(500);
     Serial.println("SPIFFS mounted successfully");
   }
- 
+
 }
 
 void loop()
@@ -143,74 +141,40 @@ void connectToWiFi() {
 }
 
 
-void handleBmp()
-{
-  if (!esp32cam::Camera.changeResolution(loRes)) {
-    Serial.println("SET-LO-RES FAIL");
-  }
-
-  auto frame = esp32cam::capture();
-  if (frame == nullptr) {
-    Serial.println("CAPTURE FAIL");
-    server.send(503, "", "");
-    return;
-  }
-  Serial.printf("CAPTURE OK %dx%d %db\n", frame->getWidth(), frame->getHeight(),
-                static_cast<int>(frame->size()));
-
-  if (!frame->toBmp()) {
-    Serial.println("CONVERT FAIL");
-    server.send(503, "", "");
-    return;
-  }
-  Serial.printf("CONVERT OK %dx%d %db\n", frame->getWidth(), frame->getHeight(),
-                static_cast<int>(frame->size()));
-
-  server.setContentLength(frame->size());
-  server.send(200, "image/bmp");
-  WiFiClient client = server.client();
-  frame->writeTo(client);
-}
 
 void serveJpg()
 {
-  auto frame = esp32cam::capture();
-  if (frame == nullptr) {
-    Serial.println("CAPTURE FAIL");
-    server.send(503, "", "");
-    return;
-  }
-  Serial.printf("CAPTURE OK %dx%d %db\n", frame->getWidth(), frame->getHeight(),
-                static_cast<int>(frame->size()));
-
-  server.setContentLength(frame->size());
+  camera_fb_t * frame = NULL;
+  frame = esp_camera_fb_get();
+  esp_camera_fb_return(frame);
   server.send(200, "image/jpeg");
-  WiFiClient client = server.client();
-  frame->writeTo(client);
+  server.client().write((char *)frame->buf, frame->len);
+  /*
+    server.setContentLength(frame->size());
+    server.send(200, "image/jpeg");
+    WiFiClient client = server.client();
+    frame->writeTo(client);
+  */
 }
 
 void handleJpgLo()
 {
-  if (!esp32cam::Camera.changeResolution(loRes)) {
-    Serial.println("SET-LO-RES FAIL");
-  }
-  serveJpg();
+  if (esp_camera_init(&config) == ESP_OK)
+    serveJpg();
 }
 
 void handleJpgHi()
 {
-  if (!esp32cam::Camera.changeResolution(hiRes)) {
-    Serial.println("SET-HI-RES FAIL");
-  }
-  serveJpg();
+  config.frame_size = FRAMESIZE_SVGA;
+  if (esp_camera_init(&config) == ESP_OK)
+    serveJpg();
 }
 
 void handleJpgRaw()
 {
-  if (!esp32cam::Camera.changeResolution(rawRes)) {
-    Serial.println("SET-HI-RES FAIL");
-  }
-  serveJpg();
+  config.frame_size = FRAMESIZE_UXGA;
+  if (esp_camera_init(&config) == ESP_OK)
+    serveJpg();
 }
 
 void handleJpg()
@@ -219,25 +183,7 @@ void handleJpg()
   server.send(302, "", "");
 }
 
-void handleMjpeg()
-{
-  if (!esp32cam::Camera.changeResolution(hiRes)) {
-    Serial.println("SET-HI-RES FAIL");
-  }
-
-  Serial.println("STREAM BEGIN");
-  WiFiClient client = server.client();
-  auto startTime = millis();
-  int res = esp32cam::Camera.streamMjpeg(client);
-  if (res <= 0) {
-    Serial.printf("STREAM ERROR %d\n", res);
-    return;
-  }
-  auto duration = millis() - startTime;
-  Serial.printf("STREAM END %dfrm %0.2ffps\n", res, 1000.0 * res / duration);
-}
-
-void handleRestart(){
+void handleRestart() {
   ESP.restart();
 }
 
@@ -252,18 +198,16 @@ void set_led() {
   int led_value = jsonDocument["value"];
   Serial.print("LED: ");
   Serial.print(led_value);
-  digitalWrite(LED_PIN, led_value);   // turn the LED on (HIGH is the voltage level)  
+  digitalWrite(LED_PIN, led_value);   // turn the LED on (HIGH is the voltage level)
 
   // Respond to the client
   server.send(200, "application/json", "{}");
 }
 
-
-
 void get_ID() {
-  EEPROM.get(addr_id,setup_id);
-  Serial.println("Old EEPROM value is: "+String(setup_id));
-  
+  EEPROM.get(addr_id, setup_id);
+  Serial.println("Old EEPROM value is: " + String(setup_id));
+
 
   Serial.print("setup_id: ");
   Serial.print(setup_id);
@@ -279,9 +223,9 @@ void set_ID() {
 
   // Get RGB components
   setup_id = (int)jsonDocument["value"];
-  EEPROM.put(addr_id,setup_id);
-  EEPROM.commit();  
-  
+  EEPROM.put(addr_id, setup_id);
+  EEPROM.commit();
+
   Serial.print("setup_id: ");
   Serial.print(setup_id);
 
@@ -289,42 +233,32 @@ void set_ID() {
   server.send(200, "application/json", "{}");
 }
 
-void handleIdentification(){
+void handleIdentification() {
   server.send(200, "application/json", identifier);
 }
 
-// Triggered image to SPIFFS
-void IRAM_ATTR trigger_image() {
-  button1.numberKeyPresses += 1;
-  button1.pressed = true;
-  capturePhotoSaveSpiffs();
-}
 
-
-// https://randomnerdtutorials.com/esp32-cam-take-photo-display-web-server/
 // Check if photo capture was successful
 bool checkPhoto( fs::FS &fs ) {
-  File f_pic = fs.open( FILE_PHOTO );
+  File f_pic = fs.open( TRIGGER_PHOTO_NAME );
   unsigned int pic_sz = f_pic.size();
   return ( pic_sz > 100 );
 }
 
 // Capture Photo and Save it to SPIFFS
 void capturePhotoSaveSpiffs( void ) {
+  camera_fb_t * fb = NULL; // pointer
   bool ok = 0; // Boolean indicating if the picture has been taken correctly
 
   do {
     // Take a photo with the camera
     Serial.println("Taking a photo...");
-    auto frame = esp32cam::capture();
-    if (!frame) {
+
+    fb = esp_camera_fb_get();
+    if (!fb) {
       Serial.println("Camera capture failed");
       return;
     }
-    if (frame == nullptr) {
-    Serial.println("CAPTURE FAIL");
-    return;
-    }  
 
     // Photo file name
     Serial.printf("Picture file name: %s\n", TRIGGER_PHOTO_NAME);
@@ -335,7 +269,7 @@ void capturePhotoSaveSpiffs( void ) {
       Serial.println("Failed to open file in writing mode");
     }
     else {
-      file.write(frame->buf, frame->len); // payload (image), payload length
+      file.write(fb->buf, fb->len); // payload (image), payload length
       Serial.print("The picture has been saved in ");
       Serial.print(TRIGGER_PHOTO_NAME);
       Serial.print(" - Size: ");
@@ -344,15 +278,14 @@ void capturePhotoSaveSpiffs( void ) {
     }
     // Close the file
     file.close();
-    
+    esp_camera_fb_return(fb);
+
     // check if file has been correctly saved in SPIFFS
     ok = checkPhoto(SPIFFS);
   } while ( !ok );
 }
 
-void setupCam(){
-    // OV2640 camera module
-  camera_config_t config;
+void setupCam() {
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
   config.pin_d0 = Y2_GPIO_NUM;
@@ -383,7 +316,7 @@ void setupCam(){
     config.jpeg_quality = 100;
     config.fb_count = 1;
   }
-  
+
   // Camera init
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
