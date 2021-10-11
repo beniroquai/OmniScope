@@ -66,14 +66,14 @@ void setup()
   delay(1000);
   digitalWrite(FLASH_PIN, LOW);   // turn the LED on (HIGH is the voltage level)
 
-
-
   // Initiliaze Camera
   setupCam();
 
   // Initialize Wifi
+  Serial.println("setting up WIFI");
   connectToWiFi();
 
+  Serial.println("setting up SERVER");
   Serial.print("http://");
   Serial.println(WiFi.localIP());
   Serial.println("  /cam-lo.jpg");
@@ -89,16 +89,17 @@ void setup()
   server.on("/getID", HTTP_GET, get_ID);
   server.on("/setID", HTTP_POST, set_ID);
   server.on("/omniscope", HTTP_GET, handleIdentification);
-
   server.begin();
 
   // handle HW trigger
-  pinMode(TRIGGER_PIN, INPUT_PULLUP);
-  attachInterrupt(TRIGGER_PIN, trigger_image, RISING);
-  digitalWrite(4, LOW);
-  rtc_gpio_hold_dis(GPIO_NUM_4);
+  Serial.println("setting up Trigger");
+  //pinMode(TRIGGER_PIN, INPUT_PULLUP);
+  //attachInterrupt(TRIGGER_PIN, trigger_image, RISING);
+  //digitalWrite(TRIGGER_PIN, LOW);
+  //rtc_gpio_hold_dis(GPIO_NUM_4);
 
   // Start SPIFFS to save triggered image
+  Serial.println("setting up SPIFFS");
   if (!SPIFFS.begin(true)) {
     Serial.println("An Error has occurred while mounting SPIFFS");
     ESP.restart();
@@ -126,9 +127,10 @@ void connectToWiFi() {
 
   int notConnectedCounter = 0;
 
+  Serial.print("Wifi connecting...");
   while (WiFi.status() != WL_CONNECTED) {
     delay(100);
-    Serial.println("Wifi connecting...");
+    Serial.println(".");
     notConnectedCounter++;
     if (notConnectedCounter > 50) { // Reset board if not connected after 5s
       Serial.println("Resetting due to Wifi not connecting...");
