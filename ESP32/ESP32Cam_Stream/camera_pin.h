@@ -1,5 +1,4 @@
-// Pin definition for CAMERA_MODEL_AI_THINKER
-// Change pin definition if you're using another ESP32 with camera module
+// OV2640 camera module pins (CAMERA_MODEL_AI_THINKER)
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM      0

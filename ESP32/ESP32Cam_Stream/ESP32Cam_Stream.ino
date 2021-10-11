@@ -67,6 +67,7 @@ void setup()
   digitalWrite(FLASH_PIN, LOW);   // turn the LED on (HIGH is the voltage level)
 
   // Initiliaze Camera
+  Serial.println("setting up camera");
   setupCam();
 
   // Initialize Wifi
@@ -111,9 +112,15 @@ void setup()
 
 }
 
+boolean takeNewPhoto = true;
+
 void loop()
 {
   server.handleClient();
+    if (takeNewPhoto) {
+    capturePhotoSaveSpiffs();
+    takeNewPhoto = false;
+  }
 }
 
 
@@ -130,7 +137,7 @@ void connectToWiFi() {
   Serial.print("Wifi connecting...");
   while (WiFi.status() != WL_CONNECTED) {
     delay(100);
-    Serial.println(".");
+    Serial.print(".");
     notConnectedCounter++;
     if (notConnectedCounter > 50) { // Reset board if not connected after 5s
       Serial.println("Resetting due to Wifi not connecting...");
@@ -146,11 +153,39 @@ void connectToWiFi() {
 
 void serveJpg()
 {
-  camera_fb_t * frame = NULL;
-  frame = esp_camera_fb_get();
-  esp_camera_fb_return(frame);
-  server.send(200, "image/jpeg");
-  server.client().write((char *)frame->buf, frame->len);
+
+  camera_fb_t * fb = NULL; // pointer
+  // Take a photo with the camera
+  Serial.println("Taking a photo...");
+  fb = esp_camera_fb_get();
+  if (!fb) {
+    Serial.println("Camera capture failed");
+    return;
+  }
+  const char *data = (const char *)fb->buf;
+ 
+//  server.send(200, "image/jpeg");
+  //fb->writeTo(client, 10000));
+//  server.client().write((char *)fb->buf, fb->len);
+//  esp_camera_fb_return(fb);
+
+  // send to client
+  //server.setContentLength(fb->size);
+  WiFiClient client = server.client();
+    if (!client.connected())
+  {
+    Serial.println("fail ... \n");
+    return;
+  }
+  
+    String response = "HTTP/1.1 200 OK\r\n";
+  response += "Content-disposition: inline; filename=capture.jpg\r\n";
+  response += "Content-type: image/jpeg\r\n\r\n";
+  server.sendContent(response);
+  client.write((char *)fb->buf, fb->len);
+  esp_camera_fb_return(fb);
+
+
   /*
     server.setContentLength(frame->size());
     server.send(200, "image/jpeg");
@@ -159,23 +194,25 @@ void serveJpg()
   */
 }
 
+
+
 void handleJpgLo()
 {
-  if (esp_camera_init(&config) == ESP_OK)
+ // if (esp_camera_init(&config) == ESP_OK)
     serveJpg();
 }
 
 void handleJpgHi()
 {
-  config.frame_size = FRAMESIZE_SVGA;
-  if (esp_camera_init(&config) == ESP_OK)
-    serveJpg();
+  //config.frame_size = FRAMESIZE_SVGA;
+  //if (esp_camera_init(&config) == ESP_OK)
+  serveJpg();
 }
 
 void handleJpgRaw()
 {
   config.frame_size = FRAMESIZE_UXGA;
-  if (esp_camera_init(&config) == ESP_OK)
+ // if (esp_camera_init(&config) == ESP_OK)
     serveJpg();
 }
 
@@ -288,6 +325,11 @@ void capturePhotoSaveSpiffs( void ) {
 }
 
 void setupCam() {
+  // Turn-off the 'brownout detector'
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
+  // OV2640 camera module
+  camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
   config.pin_d0 = Y2_GPIO_NUM;
@@ -311,18 +353,20 @@ void setupCam() {
 
   if (psramFound()) {
     config.frame_size = FRAMESIZE_UXGA;
-    config.jpeg_quality = 100;
+    config.jpeg_quality = 10;
     config.fb_count = 2;
   } else {
     config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 100;
+    config.jpeg_quality = 12;
     config.fb_count = 1;
   }
-
   // Camera init
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x", err);
     ESP.restart();
   }
+
+  Serial.printf("Camera initialized");
+    
 }
