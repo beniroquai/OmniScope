@@ -1,16 +1,25 @@
 //https://stackoverflow.com/questions/60029614/esp32-cam-stream-in-opencv-python
 #include <esp32cam.h>
+#include "esp_camera.h"
 #include <WebServer.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
 #include <EEPROM.h>
+#include "soc/soc.h"           // Disable brownour problems
+#include "soc/rtc_cntl_reg.h"  // Disable brownour problems
+#include "driver/rtc_io.h"
+#include <SPIFFS.h>
 
 // DEFINE WIFI
 const char *SSID = "Blynk"; // "BenMur";
 const char *PWD =  "12345678"; //"MurBen3128";
 String hostname = "ESPLENS0";
 
-#define LED_PIN 4 // 18
+// TRIGGER
+#define LED_PIN 33 
+#define FLASH_PIN 4
+#define TRIGGER_PIN 4
+#define TRIGGER_PHOTO_NAME "/photo.jpg"
 
 WebServer server(80);
 
@@ -19,7 +28,7 @@ DynamicJsonDocument jsonDocument(2048);
 
 static auto loRes = esp32cam::Resolution::find(320, 240);
 static auto hiRes = esp32cam::Resolution::find(800, 600);
-static auto rawRes = esp32cam::Resolution::find(1632, 1232);
+static auto rawRes = esp32cam::Resolution::find(1600, 1200);
 
 // EEPROM
 int addr_id = 0;
@@ -29,6 +38,8 @@ String identifier = "OMNISCOPE_1";
 
 void setup()
 {
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //disable brownout detector
+  
   Serial.begin(115200);
   Serial.println("Spinning Up Microscope");
 
@@ -38,13 +49,15 @@ void setup()
   Serial.println("SETUP ID is: "+String(setup_id));
 
   // visualize Power available
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, HIGH);   // turn the LED on (HIGH is the voltage level)
+  pinMode(FLASH_PIN, OUTPUT);
+  digitalWrite(FLASH_PIN, HIGH);   // turn the LED on (HIGH is the voltage level)
   delay(1000);
-  digitalWrite(LED_PIN, LOW);   // turn the LED on (HIGH is the voltage level)
+  digitalWrite(FLASH_PIN, LOW);   // turn the LED on (HIGH is the voltage level)
+
 
   
   // Initiliaze Camera
+  setupCam();
   {
     using namespace esp32cam;
     Config cfg;
@@ -80,6 +93,23 @@ void setup()
   server.on("/omniscope", HTTP_GET, handleIdentification);
 
   server.begin();
+
+  // handle HW trigger
+  pinMode(TRIGGER_PIN, INPUT_PULLUP);
+  attachInterrupt(TRIGGER_PIN, trigger_image, RISING);
+  digitalWrite(4, LOW);
+  rtc_gpio_hold_dis(GPIO_NUM_4);
+
+  // Start SPIFFS to save triggered image
+  if (!SPIFFS.begin(true)) {
+    Serial.println("An Error has occurred while mounting SPIFFS");
+    ESP.restart();
+  }
+  else {
+    delay(500);
+    Serial.println("SPIFFS mounted successfully");
+  }
+ 
 }
 
 void loop()
@@ -183,7 +213,6 @@ void handleJpgRaw()
   serveJpg();
 }
 
-
 void handleJpg()
 {
   server.sendHeader("Location", "/cam-hi.jpg");
@@ -262,4 +291,103 @@ void set_ID() {
 
 void handleIdentification(){
   server.send(200, "application/json", identifier);
+}
+
+// Triggered image to SPIFFS
+void IRAM_ATTR trigger_image() {
+  button1.numberKeyPresses += 1;
+  button1.pressed = true;
+  capturePhotoSaveSpiffs();
+}
+
+
+// https://randomnerdtutorials.com/esp32-cam-take-photo-display-web-server/
+// Check if photo capture was successful
+bool checkPhoto( fs::FS &fs ) {
+  File f_pic = fs.open( FILE_PHOTO );
+  unsigned int pic_sz = f_pic.size();
+  return ( pic_sz > 100 );
+}
+
+// Capture Photo and Save it to SPIFFS
+void capturePhotoSaveSpiffs( void ) {
+  bool ok = 0; // Boolean indicating if the picture has been taken correctly
+
+  do {
+    // Take a photo with the camera
+    Serial.println("Taking a photo...");
+    auto frame = esp32cam::capture();
+    if (!frame) {
+      Serial.println("Camera capture failed");
+      return;
+    }
+    if (frame == nullptr) {
+    Serial.println("CAPTURE FAIL");
+    return;
+    }  
+
+    // Photo file name
+    Serial.printf("Picture file name: %s\n", TRIGGER_PHOTO_NAME);
+    File file = SPIFFS.open(TRIGGER_PHOTO_NAME, FILE_WRITE);
+
+    // Insert the data in the photo file
+    if (!file) {
+      Serial.println("Failed to open file in writing mode");
+    }
+    else {
+      file.write(frame->buf, frame->len); // payload (image), payload length
+      Serial.print("The picture has been saved in ");
+      Serial.print(TRIGGER_PHOTO_NAME);
+      Serial.print(" - Size: ");
+      Serial.print(file.size());
+      Serial.println(" bytes");
+    }
+    // Close the file
+    file.close();
+    
+    // check if file has been correctly saved in SPIFFS
+    ok = checkPhoto(SPIFFS);
+  } while ( !ok );
+}
+
+void setupCam(){
+    // OV2640 camera module
+  camera_config_t config;
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer = LEDC_TIMER_0;
+  config.pin_d0 = Y2_GPIO_NUM;
+  config.pin_d1 = Y3_GPIO_NUM;
+  config.pin_d2 = Y4_GPIO_NUM;
+  config.pin_d3 = Y5_GPIO_NUM;
+  config.pin_d4 = Y6_GPIO_NUM;
+  config.pin_d5 = Y7_GPIO_NUM;
+  config.pin_d6 = Y8_GPIO_NUM;
+  config.pin_d7 = Y9_GPIO_NUM;
+  config.pin_xclk = XCLK_GPIO_NUM;
+  config.pin_pclk = PCLK_GPIO_NUM;
+  config.pin_vsync = VSYNC_GPIO_NUM;
+  config.pin_href = HREF_GPIO_NUM;
+  config.pin_sscb_sda = SIOD_GPIO_NUM;
+  config.pin_sscb_scl = SIOC_GPIO_NUM;
+  config.pin_pwdn = PWDN_GPIO_NUM;
+  config.pin_reset = RESET_GPIO_NUM;
+  config.xclk_freq_hz = 20000000;
+  config.pixel_format = PIXFORMAT_JPEG;
+
+  if (psramFound()) {
+    config.frame_size = FRAMESIZE_UXGA;
+    config.jpeg_quality = 100;
+    config.fb_count = 2;
+  } else {
+    config.frame_size = FRAMESIZE_SVGA;
+    config.jpeg_quality = 100;
+    config.fb_count = 1;
+  }
+  
+  // Camera init
+  esp_err_t err = esp_camera_init(&config);
+  if (err != ESP_OK) {
+    Serial.printf("Camera init failed with error 0x%x", err);
+    ESP.restart();
+  }
 }
