@@ -59,14 +59,27 @@ for i_url in individual_url:
 #%load_ext autoreload
 #%autoreload 2
 
-from utils import *
-host = "192.168.43.5"
-esp32 = ESP32Client(host, 80)
+import utils
+host = "192.168.43.247"
+esp32 = utils.ESP32Client(host, 80)
 
+esp32.set_flash(1)
 esp32.set_led(1)
-esp32.set_id(0)
-setup_ids = esp32.get_id()
-esp32.restart()
+esp32.set_id(10)
+setup_id = esp32.get_id()
+print(setup_id)
+#esp32.restart()
+
+
+#%%
+import utils
+import time
+host = "192.168.43.247"
+esp32 = utils.ESP32Client(host, 80)
+
+esp32.start_stream()
+time.sleep(2)
+esp32.stop_stream()
 
 #%% JPEG 
 while(True):
@@ -80,3 +93,4 @@ while(True):
         exit(0)  
         
         
+    

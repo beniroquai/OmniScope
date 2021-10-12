@@ -5,22 +5,12 @@ import io
 import logging
 import zeroconf
 import scapy.all as scapy
-  
-def scan(ip):
-    arp_req_frame = scapy.ARP(pdst = ip)
+import urllib
+import numpy as np
+import cv2
 
-    broadcast_ether_frame = scapy.Ether(dst = "ff:ff:ff:ff:ff:ff")
-    
-    broadcast_ether_arp_req_frame = broadcast_ether_frame / arp_req_frame
+from threading import Thread
 
-    answered_list = scapy.srp(broadcast_ether_arp_req_frame, timeout = 1, verbose = False)[0]
-    result = []
-    for i in range(0,len(answered_list)):
-        #client_dict = {"ip" : answered_list[i][1].psrc, "mac" : answered_list[i][1].hwsrc}
-        #result.append(client_dict)
-        result.append(answered_list[i][1].psrc)
-
-    return result,answered_list
 
 
 class ESP32Client(object):
@@ -50,8 +40,9 @@ class ESP32Client(object):
             self.port = port
             #self.get_json(self.base_uri)
         #self.populate_extensions()
+        self.is_stream = False
+        self.latest_frame = None
 
-    extensions = None
         
     @property
     def base_uri(self):
@@ -92,6 +83,14 @@ class ESP32Client(object):
         r = self.post_json(path, payload)
         return r
     
+    def set_flash(self, state=0):
+        payload = {
+            "value": state
+        }
+        path = '/flash'
+        r = self.post_json(path, payload)
+        return r
+    
     def set_id(self, m_id=0):
         payload = {
             "value": m_id
@@ -116,4 +115,44 @@ class ESP32Client(object):
         return r
 
     
+    def start_stream(self):
+        # Create and launch a thread    
+        self.stream_url = self.base_uri+'/cam-stream'
+        self.is_stream = True
+        frame_receiver_t = Thread(target = self.getframes)
+        frame_receiver_t.start() 
+
+    def stop_stream(self):
+        # Create and launch a thread    
+        self.is_stream = False
+
+    def getframes(self):
+        print("Start Stream")
+        while self.is_stream:
+            print("Get frame..")
+            frame_resp = urllib.request.urlopen(self.stream_url)
+            frame = np.array(bytearray(frame_resp.read()), dtype=np.uint8)
+            self.latest_frame = cv2.imdecode(frame, -1)
+            print(self.latest_frame)
+        print("Stop Stream")
+            
+            
+def scan(ip):
+    arp_req_frame = scapy.ARP(pdst = ip)
+
+    broadcast_ether_frame = scapy.Ether(dst = "ff:ff:ff:ff:ff:ff")
+    
+    broadcast_ether_arp_req_frame = broadcast_ether_frame / arp_req_frame
+
+    answered_list = scapy.srp(broadcast_ether_arp_req_frame, timeout = 1, verbose = False)[0]
+    result = []
+    for i in range(0,len(answered_list)):
+        #client_dict = {"ip" : answered_list[i][1].psrc, "mac" : answered_list[i][1].hwsrc}
+        #result.append(client_dict)
+        result.append(answered_list[i][1].psrc)
+
+    return result,answered_list
+
+        
+
     

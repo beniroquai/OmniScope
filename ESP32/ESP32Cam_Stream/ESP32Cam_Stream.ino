@@ -63,7 +63,7 @@ void setup()
   // visualize Power available
   pinMode(FLASH_PIN, OUTPUT);
   digitalWrite(FLASH_PIN, HIGH);   // turn the LED on (HIGH is the voltage level)
-  delay(1000);
+  delay(50);
   digitalWrite(FLASH_PIN, LOW);   // turn the LED on (HIGH is the voltage level)
 
   // Initiliaze Camera
@@ -77,21 +77,21 @@ void setup()
   Serial.println("setting up SERVER");
   Serial.print("http://");
   Serial.println(WiFi.localIP());
-  Serial.println("  /cam-lo.jpg");
-  Serial.println("  /cam-hi.jpg");
-  Serial.println("  /cam-raw.jpg");
 
   server.on("/cam-lo.jpg", handleJpgLo);
   server.on("/cam-hi.jpg", handleJpgHi);
   server.on("/cam-raw.jpg", handleJpgRaw);
   server.on("/cam.jpg", handleJpg);
-  server.on("/cam-stream", serve_jpg_stream);
+  server.on("/cam-stream.jpg", serve_jpg_stream);
   server.on("/cam-triggered", serve_triggered);
   server.on("/restart", handleRestart);
   server.on("/led", HTTP_POST, set_led);
+  server.on("/flash", HTTP_POST, set_flash);
   server.on("/getID", HTTP_GET, get_ID);
   server.on("/setID", HTTP_POST, set_ID);
   server.on("/omniscope", HTTP_GET, handleIdentification);
+
+  
   server.begin();
 
   // handle HW trigger
@@ -114,15 +114,10 @@ void setup()
 
 }
 
-boolean takeNewPhoto = true;
-
 void loop()
 {
   server.handleClient();
-    if (takeNewPhoto) {
-    capturePhotoSaveSpiffs();
-    takeNewPhoto = false;
-  }
+
 }
 
 
@@ -152,47 +147,46 @@ void connectToWiFi() {
 }
 
 
-
+const char JHEADER[] = "HTTP/1.1 200 OK\r\n" \
+                       "Content-disposition: inline; filename=capture.jpg\r\n" \
+                       "Content-type: image/jpeg\r\n\r\n";
+const int jhdLen = strlen(JHEADER);
+const char HEADER[] = "HTTP/1.1 200 OK\r\n" \
+                      "Access-Control-Allow-Origin: *\r\n" \
+                      "Content-Type: multipart/x-mixed-replace; boundary=123456789000000000000987654321\r\n";
+const char BOUNDARY[] = "\r\n--123456789000000000000987654321\r\n";
+const char CTNTTYPE[] = "Content-Type: image/jpeg\r\nContent-Length: ";
+const int hdrLen = strlen(HEADER);
+const int bdrLen = strlen(BOUNDARY);
+const int cntLen = strlen(CTNTTYPE);
+                      
 void serve_jpg_stream(void)
-{
-  
+{ // https://github.com/krukmat/ESPtream/blob/5158e70a0551b07f695d1d9d138ee2d83d07958a/StreamAlive.ino
+  char buf[32];
+  int s;
   camera_fb_t * fb = NULL; // pointer
-  
   WiFiClient client = server.client();
-  String response = "HTTP/1.1 200 OK\r\n";
-  response += "Content-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n";
-  server.sendContent(response);
 
-  
-  while (1)
+  client.write(HEADER, hdrLen);
+  client.write(BOUNDARY, bdrLen);
+  Serial.println("Starting stream...");
+  while (true)
   {
+    if (!client.connected()) break;
     fb = esp_camera_fb_get();
-    if (!client.connected()){
-      esp_camera_fb_return(fb);
-      break;
-    }
-    response = "--frame\r\n";
-    response += "Content-Type: image/jpeg\r\n\r\n";
-    server.sendContent(response);
-
+    client.write(CTNTTYPE, cntLen);
+    sprintf( buf, "%d\r\n\r\n", s );
+    client.write(buf, strlen(buf));
     client.write((char *)fb->buf, fb->len);
-  
-    server.sendContent("\r\n");
-    if (!client.connected()){
-      esp_camera_fb_return(fb);
-      break;
-    }
-      
+    client.write(BOUNDARY, bdrLen);
   }
-    
-
+  esp_camera_fb_return(fb);
+  Serial.println("Ending stream...");
 }
 
-
-
+/*
 void serveJpg()
 {
-
   camera_fb_t * fb = NULL; // pointer
   // Take a photo with the camera
   Serial.println("Taking a photo...");
@@ -223,6 +217,22 @@ void serveJpg()
   server.sendContent(response);
   client.write((char *)fb->buf, fb->len);
   esp_camera_fb_return(fb);
+}
+
+*/
+void serveJpg(void)
+{
+  camera_fb_t * fb = NULL; // pointer
+  // Take a photo with the camera
+  Serial.println("Taking a photo...");
+  fb = esp_camera_fb_get();
+  
+  WiFiClient client = server.client();
+
+  if (!client.connected()) return;
+
+  client.write(JHEADER, jhdLen);
+  client.write((char *)fb->buf, fb->len);
 }
 
 
@@ -273,6 +283,22 @@ void set_led() {
   // Respond to the client
   server.send(200, "application/json", "{}");
 }
+
+
+void set_flash() {
+  String body = server.arg("plain");
+  deserializeJson(jsonDocument, body);
+
+  // Get RGB components
+  int flash_value = jsonDocument["value"];
+  Serial.print("Flash: ");
+  Serial.print(flash_value );
+  digitalWrite(FLASH_PIN, flash_value );   // turn the LED on (HIGH is the voltage level)
+
+  // Respond to the client
+  server.send(200, "application/json", "{}");
+}
+
 
 void get_ID() {
   EEPROM.get(addr_id, setup_id);
