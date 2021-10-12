@@ -78,6 +78,7 @@ void setup()
   Serial.print("http://");
   Serial.println(WiFi.localIP());
 
+ 
   server.on("/cam-lo.jpg", handleJpgLo);
   server.on("/cam-hi.jpg", handleJpgHi);
   server.on("/cam-raw.jpg", handleJpgRaw);
@@ -89,6 +90,7 @@ void setup()
   server.on("/flash", HTTP_POST, set_flash);
   server.on("/getID", HTTP_GET, get_ID);
   server.on("/setID", HTTP_POST, set_ID);
+  server.on("/softtrigger", HTTP_POST, handleSoftTrigger);
   server.on("/omniscope", HTTP_GET, handleIdentification);
 
   
@@ -112,10 +114,24 @@ void setup()
     Serial.println("SPIFFS mounted successfully");
   }
 
+  pinMode(TRIGGER_PIN, INPUT);
 }
+
+boolean is_capture = true;
+boolean trigger_state = false;
+boolean trigger_state_last = false;
+
 
 void loop()
 {
+  // should do an interrupt, but does not really work //TODO
+  trigger_state = digitalRead(TRIGGER_PIN);
+
+  if(is_capture or (trigger_state_last != trigger_state)){
+    trigger_state_last = trigger_state; // rising edge
+    capturePhotoSaveSpiffs(); 
+    is_capture=false;
+  }
   server.handleClient();
 
 }
@@ -184,42 +200,7 @@ void serve_jpg_stream(void)
   Serial.println("Ending stream...");
 }
 
-/*
-void serveJpg()
-{
-  camera_fb_t * fb = NULL; // pointer
-  // Take a photo with the camera
-  Serial.println("Taking a photo...");
-  fb = esp_camera_fb_get();
-  if (!fb) {
-    Serial.println("Camera capture failed");
-    return;
-  }
-  const char *data = (const char *)fb->buf;
- 
-//  server.send(200, "image/jpeg");
-  //fb->writeTo(client, 10000));
-//  server.client().write((char *)fb->buf, fb->len);
-//  esp_camera_fb_return(fb);
 
-  // send to client
-  //server.setContentLength(fb->size);
-  WiFiClient client = server.client();
-    if (!client.connected())
-  {
-    Serial.println("fail ... \n");
-    return;
-  }
-  
-    String response = "HTTP/1.1 200 OK\r\n";
-  response += "Content-disposition: inline; filename=capture.jpg\r\n";
-  response += "Content-type: image/jpeg\r\n\r\n";
-  server.sendContent(response);
-  client.write((char *)fb->buf, fb->len);
-  esp_camera_fb_return(fb);
-}
-
-*/
 void serveJpg(void)
 {
   camera_fb_t * fb = NULL; // pointer
@@ -234,8 +215,6 @@ void serveJpg(void)
   client.write(JHEADER, jhdLen);
   client.write((char *)fb->buf, fb->len);
 }
-
-
 
 void handleJpgLo()
 {
@@ -293,8 +272,12 @@ void set_flash() {
   int flash_value = jsonDocument["value"];
   Serial.print("Flash: ");
   Serial.print(flash_value );
+  pinMode(FLASH_PIN, OUTPUT);
   digitalWrite(FLASH_PIN, flash_value );   // turn the LED on (HIGH is the voltage level)
 
+  if(flash_value==false) {
+    pinMode(FLASH_PIN, INPUT_PULLUP);
+  }
   // Respond to the client
   server.send(200, "application/json", "{}");
 }
@@ -430,6 +413,7 @@ void setupCam() {
 
 
 void serve_triggered(){
+  Serial.println("Serve triggered image");
   handleFileRead(TRIGGER_PHOTO_NAME); 
 }
 
@@ -459,4 +443,9 @@ bool handleFileRead(String path){
     return true;
   }
   return false;
+}
+
+boolean handleSoftTrigger() {
+  server.send(200, "application/json", "{}");
+  capturePhotoSaveSpiffs(); 
 }

@@ -8,6 +8,7 @@ import scapy.all as scapy
 import urllib
 import numpy as np
 import cv2
+import imageio
 
 from threading import Thread
 
@@ -17,7 +18,7 @@ class ESP32Client(object):
     # headers = {'ESP32-version': '*'}
     headers={"Content-Type":"application/json"}
 
-    def __init__(self, host, port=80):
+    def __init__(self, host, port=80, is_debug=False):
         if isinstance(host, zeroconf.ServiceInfo):
             # If we have an mDNS ServiceInfo object, try each address
             # in turn, to see if it works (sometimes you get addresses
@@ -42,6 +43,7 @@ class ESP32Client(object):
         #self.populate_extensions()
         self.is_stream = False
         self.latest_frame = None
+        self.is_debug = is_debug
 
         
     @property
@@ -80,6 +82,8 @@ class ESP32Client(object):
             "value": state
         }
         path = '/led'
+        if state:
+            print("WARNING: TRIGGER won't work if LED is turned on!")
         r = self.post_json(path, payload)
         return r
     
@@ -114,27 +118,40 @@ class ESP32Client(object):
         r = self.post_json(path)
         return r
 
-    
-    def start_stream(self):
+    def start_stream(self, callback_fct = None):
         # Create and launch a thread    
         self.stream_url = self.base_uri+'/cam-stream'
         self.is_stream = True
-        frame_receiver_t = Thread(target = self.getframes)
-        frame_receiver_t.start() 
+        self.frame_receiver_thread = Thread(target = self.getframes)
+        self.frame_receiver_thread.start() 
+        self.callback_fct = callback_fct
 
     def stop_stream(self):
         # Create and launch a thread    
         self.is_stream = False
+        self.frame_receiver_thread.join()
 
+    def getframe(self, is_triggered=False):
+        url = self.base_uri+"/cam.jpg"
+        if is_triggered:
+            url = self.base_uri+"/cam-triggered"
+        return np.mean(np.array(imageio.imread(url)), -1)
+        
     def getframes(self):
-        print("Start Stream")
+        if self.is_debug:  print("Start Stream")
         while self.is_stream:
-            print("Get frame..")
-            frame_resp = urllib.request.urlopen(self.stream_url)
-            frame = np.array(bytearray(frame_resp.read()), dtype=np.uint8)
-            self.latest_frame = cv2.imdecode(frame, -1)
-            print(self.latest_frame)
-        print("Stop Stream")
+            t1 = time.time()
+            url = self.base_uri+"/cam.jpg"
+            self.last_frame = np.mean(np.array(imageio.imread(url)), -1)
+            if self.callback_fct is not None:
+                self.callback_fct(self.last_frame)
+            if self.is_debug: print("Framerate: "+str(1/(time.time()-t1)))
+        if self.is_debug: print("Stop Stream")
+        
+    def soft_trigger(self):
+        path = '/softtrigger'
+        r = self.post_json(path)
+        return r
             
             
 def scan(ip):

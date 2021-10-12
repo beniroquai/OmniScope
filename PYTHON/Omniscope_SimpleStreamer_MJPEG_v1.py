@@ -14,40 +14,6 @@ import urllib
 # define all cameras
 
 
-class CameraUnit:
-    def __init__(self, url, cam_id):
-        self.base_url = "http://192.168.2."
-        self.port  = "80"
-        self.url = url
-        self.cam_id = cam_id
-        self.file_endpoint = "/cam-hi.jpg"
-        self.video_endpoint = "/cam.mjpeg"
-        
-        self.CAMERA_BUFFRER_SIZE=4096
-       
-    
-    def start_stream(self):
-        #% MJPEG
-        video_url = self.base_url+self.url+":"+self.port+self.video_endpoint
-        stream = urllib.request.urlopen(video_url)
-        bts=b''
-        while True:
-            bts+=stream.read(CAMERA_BUFFRER_SIZE)
-            jpghead=bts.find(b'\xff\xd8')
-            jpgend=bts.find(b'\xff\xd9')
-            try:
-                if jpghead>-1 and jpgend>-1:
-                    jpg=bts[jpghead:jpgend+2]
-                    bts=bts[jpgend+2:]
-                    img = cv2.imdecode(np.fromstring(jpg, dtype=np.uint8),cv2.IMREAD_COLOR) 
-                    cv2.imshow('Window name',img) # display image while receiving data
-                    if cv2.waitKey(1) ==27: # if user hit esc
-                        exit(0) # exit program        
-            except:
-                print("Wrong image..")
-        
-
-
 individual_url = ("152", "153") #, "24")
 
 # determine all URLS
@@ -55,7 +21,7 @@ urls = []
 for i_url in individual_url:
     urls.append(base_url+i_url+":"+port+file_endpoint)
 
-#%% 
+#%% controls
 #%load_ext autoreload
 #%autoreload 2
 
@@ -71,26 +37,28 @@ print(setup_id)
 #esp32.restart()
 
 
-#%%
+#%% stream
 import utils
 import time
 host = "192.168.43.247"
-esp32 = utils.ESP32Client(host, 80)
+esp32 = utils.ESP32Client(host, 80, is_debug=True)
 
 esp32.start_stream()
 time.sleep(2)
 esp32.stop_stream()
 
-#%% JPEG 
-while(True):
-    imgResp=urllib.request.urlopen(urls[1])
-    imgNp=np.array(bytearray(imgResp.read()),dtype=np.uint8)
-    img=cv2.imdecode(imgNp,-1)
+import matplotlib.pyplot as plt
+plt.imshow(esp32.latest_frame)
 
-    # all the opencv processing is done here
-    cv2.imshow('test',img)
-    if ord('q')==cv2.waitKey(10):
-        exit(0)  
+# %% single capture
+esp32.soft_trigger()
+myframe = esp32.getframe()
+
+plt.imshow(myframe)
+plt.show()
+
+myframe = esp32.getframe(is_triggered=True)
         
-        
+plt.imshow(myframe)
+plt.show()      
     
