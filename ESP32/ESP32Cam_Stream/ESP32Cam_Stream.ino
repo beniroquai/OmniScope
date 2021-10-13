@@ -11,8 +11,8 @@
 #include "camera_pin.h"
 
 // DEFINE WIFI
-const char *SSID = "Blynk"; // "BenMur";
-const char *PWD =  "12345678"; //"MurBen3128";
+const char *SSID = "Blynk"; // "BenMur"; //
+const char *PWD =  "12345678"; //"MurBen3128";//
 String hostname = "ESPLENS0";
 
 // TRIGGER
@@ -42,6 +42,16 @@ int setup_id = 0;
 
 String identifier = "OMNISCOPE_1";
 
+// put stream into tasks so that it is non-blocking  // TODO?
+/*(void*)&is_streaming;
+xTaskCreate(
+                    globalIntTask,             
+                    "StreamingTask",           
+                    10000,                     
+                    (void*)&is_streaming,      
+                    1,                         
+                    NULL);                     
+*/
 
 // Triggered image to SPIFFS
 void IRAM_ATTR trigger_image() {
@@ -61,6 +71,7 @@ void setup()
   Serial.println("SETUP ID is: " + String(setup_id));
 
   // visualize Power available
+  delay(random(1000)); // Make sure that not all LEDs flash at the same time..
   pinMode(FLASH_PIN, OUTPUT);
   digitalWrite(FLASH_PIN, HIGH);   // turn the LED on (HIGH is the voltage level)
   delay(50);
@@ -84,7 +95,7 @@ void setup()
   server.on("/cam-raw.jpg", handleJpgRaw);
   server.on("/cam.jpg", handleJpg);
   server.on("/cam-stream.jpg", serve_jpg_stream);
-  server.on("/cam-triggered", serve_triggered);
+  server.on("/cam-triggered.jpg", serve_triggered);
   server.on("/restart", handleRestart);
   server.on("/led", HTTP_POST, set_led);
   server.on("/flash", HTTP_POST, set_flash);
@@ -256,7 +267,7 @@ void set_led() {
   // Get RGB components
   int led_value = jsonDocument["value"];
   Serial.print("LED: ");
-  Serial.print(led_value);
+  Serial.println(led_value);
   digitalWrite(LED_PIN, led_value);   // turn the LED on (HIGH is the voltage level)
 
   // Respond to the client
@@ -271,7 +282,7 @@ void set_flash() {
   // Get RGB components
   int flash_value = jsonDocument["value"];
   Serial.print("Flash: ");
-  Serial.print(flash_value );
+  Serial.println(flash_value );
   pinMode(FLASH_PIN, OUTPUT);
   digitalWrite(FLASH_PIN, flash_value );   // turn the LED on (HIGH is the voltage level)
 

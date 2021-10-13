@@ -44,6 +44,7 @@ class ESP32Client(object):
         self.is_stream = False
         self.latest_frame = None
         self.is_debug = is_debug
+        self.setup_id = -1
 
         
     @property
@@ -101,11 +102,13 @@ class ESP32Client(object):
         }
         path = '/setID'
         r = self.post_json(path, payload)
+        self.setup_id = r
         return r
     
     def get_id(self):
         path = '/getID'
         r = self.get_json(path)
+        self.setup_id = r
         return r
     
     def is_omniscope(self):
@@ -138,11 +141,17 @@ class ESP32Client(object):
         return np.mean(np.array(imageio.imread(url)), -1)
         
     def getframes(self):
-        if self.is_debug:  print("Start Stream")
+        if self.is_debug:  print("Start Stream - "+str(self.setup_id))
+        self.last_frame = None
         while self.is_stream:
             t1 = time.time()
             url = self.base_uri+"/cam.jpg"
-            self.last_frame = np.mean(np.array(imageio.imread(url)), -1)
+            try:
+                frame = imageio.imread(url)
+                self.last_frame = np.mean(frame, -1)
+            except:
+                frame = np.zeros((100,100))
+                print("Error while reading frame")
             if self.callback_fct is not None:
                 self.callback_fct(self.last_frame)
             if self.is_debug: print("Framerate: "+str(1/(time.time()-t1)))

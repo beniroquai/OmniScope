@@ -22,7 +22,7 @@ individual_url = ("247") #, "24")
 base_url = "192.168.43."
 port = "80"
 
-urls = []
+urls = ["43", "247"]
 for i_url in individual_url:
     urls.append(base_url+i_url+":"+port)
 
