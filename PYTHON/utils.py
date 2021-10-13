@@ -162,6 +162,79 @@ class ESP32Client(object):
         r = self.post_json(path)
         return r
             
+    
+
+# TODO: Make MultiCameraClient a child of the single camera module
+class MultiCameraClient(object):
+    def __init__(self, urls, port=80, is_debug=False):
+        self.urls = urls 
+        self.port = port
+        self.is_debug = is_debug
+        self.microscope_list = []
+        self.is_streaming = False
+        
+        # image dimensions 
+        self.pix_x = 600
+        self.pix_y = 800
+        self.Nx = 4 
+        self.Ny = 6
+        self.image_list = None
+        
+        for urli in urls:
+            print("Connecting to microscope: "+urli)
+            self.microscope_list.append(ESP32Client(urli, self.port, is_debug=self.is_debug))
+            
+    def list_microscopes(self):
+        for microscope_i in self.microscope_list:
+            print(microscope_i.get_id())
+            
+    def start_streams(self, callback_fct=None):
+        if not self.is_streaming:
+            self.is_streaming = True        
+            for microscope_i in self.microscope_list:
+                microscope_i.start_stream(callback_fct)
+            
+            # wait until all cameras start frame acquisition
+            print("Let the cameras warm up")
+            is_ready = True
+            while(not is_ready):
+                is_ready = True
+                for microscope_i in self.microscope_list:
+                    is_ready = is_ready and microscope_i.last_frame
+                time.sleep(.5)
+
+    def stop_streams(self):
+        self.is_streaming = False        
+        for microscope_i in self.microscope_list:
+            microscope_i.stop_stream()
+            
+    def acquire(self):
+        # sample images as they become available
+        self.image_canvas = np.zeros((self.Nx*self.pix_x, self.Ny*self.pix_y))
+        try:
+            self.image_list = []
+            if self.is_streaming:
+                for microscope_i in self.microscope_list:
+                    self.image_list.append(microscope_i.last_frame)
+                    
+            # merge images
+            if self.image_list is not None:
+                iiter = 0
+                for microscope_i in self.microscope_list:
+                    pos_x = microscope_i.setup_id//self.Nx
+                    pos_y =  microscope_i.setup_id%self.Nx
+                    iimage = self.image_list[iiter]
+                    self.image_canvas[pos_x*self.pix_x:(1+pos_x)*self.pix_x,
+                                      pos_y*self.pix_y:(1+pos_y)*self.pix_y] = iimage
+                    
+                    iiter +=1
+
+        except:
+            print("Need to wait until frames become available...")
+        
+        return self.image_list, self.image_canvas
+
+
             
 def scan(ip):
     arp_req_frame = scapy.ARP(pdst = ip)
