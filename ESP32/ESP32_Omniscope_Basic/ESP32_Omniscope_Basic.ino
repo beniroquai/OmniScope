@@ -7,7 +7,7 @@ const char* WIFI_PASS = "12345678";
 
 WebServer server(80);
 
-static auto loRes = esp32cam::Resolution::find(320, 240);
+static auto loRes = esp32cam::Resolution::find(640,480);
 static auto hiRes = esp32cam::Resolution::find(800, 600);
 static auto rawRes = esp32cam::Resolution::find(1600, 1200);
 
@@ -85,9 +85,11 @@ void handleJpg()
 
 void handleMjpeg()
 {
-  if (!esp32cam::Camera.changeResolution(hiRes)) {
-    Serial.println("SET-HI-RES FAIL");
+  if (!esp32cam::Camera.changeResolution(loRes)) {
+    Serial.println("SET-lo-RES FAIL");
   }
+
+  //if (!esp32cam::Canera.changeQuality(10))
 
   // flush buffer
   auto frame = esp32cam::capture();
@@ -116,6 +118,10 @@ void handleID() {
   server.send(200, "application/json", uniqueID);
 }
 
+void handleAuth() {
+  server.send(200, "application/json", "OMNISCOPE");
+}
+
 void setup()
 {
   Serial.begin(115200);
@@ -127,7 +133,7 @@ void setup()
     cfg.setPins(pins::AiThinker);
     cfg.setResolution(hiRes);
     cfg.setBufferCount(2);
-    cfg.setJpeg(80);
+    cfg.setJpeg(10);
 
     bool ok = Camera.begin(cfg);
     Serial.println(ok ? "CAMERA OK" : "CAMERA FAIL");
@@ -136,8 +142,13 @@ void setup()
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
+  int nWifiTrials = 0;
   while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
     delay(500);
+    nWifiTrials +=1;
+    if (nWifiTrials >10)
+      ESP.restart();
   }
 
   Serial.print("http://");
@@ -148,6 +159,8 @@ void setup()
   Serial.println("  /cam.mjpeg");
   Serial.println("  /restart");
   Serial.println("  /getID");
+  Serial.println("  /getAuth");
+  
 
   server.on("/cam.bmp", handleBmp);
   server.on("/cam-lo.jpg", handleJpgLo);
@@ -156,8 +169,13 @@ void setup()
   server.on("/cam.mjpeg", handleMjpeg);
   server.on("/restart", handleRestart);
   server.on("/getID", handleID);
+  server.on("/getAuth", handleAuth);
   
 
+  pinMode(4, OUTPUT);
+  digitalWrite(4,HIGH);
+  delay(200);
+  digitalWrite(4,LOW);
   server.begin();
 }
 

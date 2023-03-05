@@ -13,29 +13,52 @@ import time
 import urllib
 import utils
 import napari
-%gui qt5
+import time
+#%gui qt5
 
 #%load_ext autoreload
 #%autoreload 2
 
-#%% determine all camera URLS
-individual_url = ("247") #, "24")
-base_url = "192.168.43."
-port = "80"
+#%% 1. determine all camera URLS
+mIPScanner = utils.IPScanner()
+allOmniscopes = mIPScanner.findOmniscopes("http://192.168.2.",nThreads=20)
 
-individual_url = ["43", "247"]
-urls=[]
-for i_url in individual_url:
-    urls.append(base_url+i_url)
 
 #%% controls
 
-OmniscopeClient = utils.MultiCameraClient(urls, is_debug=False)
+OmniscopeClient = utils.MultiCameraClient(allOmniscopes, is_debug=False)
 OmniscopeClient.list_microscopes()
+
 OmniscopeClient.start_streams()
+
+#%% Set PArameters
+OmniscopeClient.setExposureTime(10)
+OmniscopeClient.setGain(0)
+OmniscopeClient.setFrameSize(3)
+OmniscopeClient.setLed(255)
+time.sleep(1)
+OmniscopeClient.setLed(0)
+
+
+#%%
+import tifffile as tif
+iFrame = 0
+while(1):
+    a,b=OmniscopeClient.acquire()
+    tif.imsave("test.tif", b, append=True)
+    iFrame+=1
+    print(iFrame)
+    
+    
+    plt.imshow(b), plt.show()
+
+
+#%%
+
 
 
 from napari.qt.threading import thread_worker
+
 
 
 @thread_worker
